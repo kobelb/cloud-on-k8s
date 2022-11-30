@@ -347,7 +347,7 @@ func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana, deployme
 	}
 
 	return deployment.Params{
-		Name:                 kbv1.KBNamer.Suffix(kb.Name + deploymentType.String()),
+		Name:                 kbv1.KBNamer.Suffix(kb.Name + "-" + deploymentType.String()),
 		Namespace:            kb.Namespace,
 		Replicas:             replicas,
 		Selector:             NewLabels(kb.Name, &deploymentType, ingress),
