@@ -13,6 +13,7 @@ import (
 	"go.elastic.co/apm/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -126,7 +127,7 @@ func (d *driver) Reconcile(
 		Owner:                 kb,
 		TLSOptions:            kb.Spec.HTTP.TLS,
 		Namer:                 kbv1.KBNamer,
-		Labels:                NewLabels(kb.Name, Main),
+		Labels:                NewLabels(kb.Name, nil, true),
 		Services:              []corev1.Service{*svc},
 		GlobalCA:              params.GlobalCA,
 		CACertRotation:        params.CACertRotation,
@@ -148,14 +149,36 @@ func (d *driver) Reconcile(
 		return results // will eventually retry
 	}
 
-	kbSettings, err := NewConfigSettings(ctx, d.client, *kb, d.version, d.ipFamily)
-	if err != nil {
-		return results.WithError(err)
-	}
+	if kb.Spec.BackgroundTaskCount == 0 {
+		kbSettings, err := NewConfigSettings(ctx, d.client, *kb, All, d.version, d.ipFamily)
+		if err != nil {
+			return results.WithError(err)
+		}
 
-	err = ReconcileConfigSecret(ctx, d.client, *kb, kbSettings)
-	if err != nil {
-		return results.WithError(err)
+		err = ReconcileConfigSecret(ctx, d.client, *kb, All, kbSettings)
+		if err != nil {
+			return results.WithError(err)
+		}
+	} else {
+		kbUISettings, err := NewConfigSettings(ctx, d.client, *kb, UI, d.version, d.ipFamily)
+		if err != nil {
+			return results.WithError(err)
+		}
+
+		err = ReconcileConfigSecret(ctx, d.client, *kb, UI, kbUISettings)
+		if err != nil {
+			return results.WithError(err)
+		}
+
+		kbBackgroundTaskSettings, err := NewConfigSettings(ctx, d.client, *kb, BackgroundTasks, d.version, d.ipFamily)
+		if err != nil {
+			return results.WithError(err)
+		}
+
+		err = ReconcileConfigSecret(ctx, d.client, *kb, BackgroundTasks, kbBackgroundTaskSettings)
+		if err != nil {
+			return results.WithError(err)
+		}
 	}
 
 	err = stackmon.ReconcileConfigSecrets(ctx, d.client, *kb)
@@ -166,36 +189,53 @@ func (d *driver) Reconcile(
 	span, _ := apm.StartSpan(ctx, "reconcile_deployments", tracing.SpanTypeApp)
 	defer span.End()
 
-	mainDeploymentParams, err := d.deploymentParams(ctx, kb, Main, kb.Spec.Count)
-	if err != nil {
-		return results.WithError(err)
-	}
+	reconciledDeployments := []appsv1.Deployment{}
+	if kb.Spec.BackgroundTaskCount == 0 {
+		deploymentParams, err := d.deploymentParams(ctx, kb, All, true, kb.Spec.Count)
+		if err != nil {
+			return results.WithError(err)
+		}
 
-	mainExpectedDp := deployment.New(mainDeploymentParams)
-	mainReconciledDp, err := deployment.Reconcile(ctx, d.client, mainExpectedDp, kb)
-	if err != nil {
-		return results.WithError(err)
-	}
+		expectedDp := deployment.New(deploymentParams)
+		reconciledDp, err := deployment.Reconcile(ctx, d.client, expectedDp, kb)
+		if err != nil {
+			return results.WithError(err)
+		}
+		reconciledDeployments = append(reconciledDeployments, reconciledDp)
+	} else {
+		uiDeploymentParams, err := d.deploymentParams(ctx, kb, UI, true, kb.Spec.BackgroundTaskCount)
+		if err != nil {
+			return results.WithError(err)
+		}
 
-	var backgroundReconciledDp appsv1.Deployment
-	if kb.Spec.BackgroundTaskCount > 0 {
-		backgroundDeploymentParams, err := d.deploymentParams(ctx, kb, BackgroundTasks, kb.Spec.BackgroundTaskCount)
+		uiExpectedDp := deployment.New(uiDeploymentParams)
+		uiReconciledDp, err := deployment.Reconcile(ctx, d.client, uiExpectedDp, kb)
+		if err != nil {
+			return results.WithError(err)
+		}
+		reconciledDeployments = append(reconciledDeployments, uiReconciledDp)
+
+		backgroundDeploymentParams, err := d.deploymentParams(ctx, kb, BackgroundTasks, false, kb.Spec.BackgroundTaskCount)
 		if err != nil {
 			return results.WithError(err)
 		}
 
 		backgroundExpectedDp := deployment.New(backgroundDeploymentParams)
-		backgroundReconciledDp, err = deployment.Reconcile(ctx, d.client, backgroundExpectedDp, kb)
+		backgroundReconciledDp, err := deployment.Reconcile(ctx, d.client, backgroundExpectedDp, kb)
 		if err != nil {
 			return results.WithError(err)
 		}
+		reconciledDeployments = append(reconciledDeployments, backgroundReconciledDp)
 	}
 
 	existingPods, err := k8s.PodsMatchingLabels(d.K8sClient(), kb.Namespace, map[string]string{KibanaNameLabelName: kb.Name})
 	if err != nil {
 		return results.WithError(err)
 	}
-	deploymentStatus, err := common.DeploymentStatuses(ctx, state.Kibana.Status.DeploymentStatus, mainExpectedDp.Spec.Selector, mainReconciledDp, backgroundReconciledDp, existingPods, KibanaVersionLabelName)
+	selector := metav1.LabelSelector{
+		MatchLabels: DefaultLabels(kb.Name),
+	}
+	deploymentStatus, err := common.DeploymentStatuses(ctx, state.Kibana.Status.DeploymentStatus, &selector, reconciledDeployments, existingPods, KibanaVersionLabelName)
 	if err != nil {
 		return results.WithError(err)
 	}
@@ -227,7 +267,7 @@ func (d *driver) getStrategyType(kb *kbv1.Kibana) (appsv1.DeploymentStrategyType
 	return appsv1.RollingUpdateDeploymentStrategyType, nil
 }
 
-func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana, deploymentType DeploymentType, replicas int32) (deployment.Params, error) {
+func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana, deploymentType DeploymentType, ingress bool, replicas int32) (deployment.Params, error) {
 	initContainersParameters, err := newInitContainersParameters(kb)
 	if err != nil {
 		return deployment.Params{}, err
@@ -238,18 +278,18 @@ func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana, deployme
 		d,
 		kb,
 		kbv1.KBNamer,
-		NewLabels(kb.Name, deploymentType),
+		NewLabels(kb.Name, &deploymentType, ingress),
 		initContainersParameters,
 	)
 	if err != nil {
 		return deployment.Params{}, err
 	}
 
-	volumes, err := d.buildVolumes(kb)
+	volumes, err := d.buildVolumes(kb, deploymentType)
 	if err != nil {
 		return deployment.Params{}, err
 	}
-	kibanaPodSpec, err := NewPodTemplateSpec(ctx, d.client, *kb, deploymentType, keystoreResources, volumes)
+	kibanaPodSpec, err := NewPodTemplateSpec(ctx, d.client, *kb, deploymentType, ingress, keystoreResources, volumes)
 	if err != nil {
 		return deployment.Params{}, err
 	}
@@ -284,7 +324,7 @@ func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana, deployme
 
 	// get config secret to add its content to the config checksum
 	configSecret := corev1.Secret{}
-	err = d.client.Get(ctx, types.NamespacedName{Name: SecretName(*kb), Namespace: kb.Namespace}, &configSecret)
+	err = d.client.Get(ctx, types.NamespacedName{Name: SecretName(*kb, deploymentType), Namespace: kb.Namespace}, &configSecret)
 	if err != nil {
 		return deployment.Params{}, err
 	}
@@ -304,16 +344,16 @@ func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana, deployme
 		Name:                 kbv1.KBNamer.Suffix(kb.Name + deploymentType.String()),
 		Namespace:            kb.Namespace,
 		Replicas:             replicas,
-		Selector:             NewLabels(kb.Name, deploymentType),
-		Labels:               NewLabels(kb.Name, deploymentType),
+		Selector:             NewLabels(kb.Name, &deploymentType, ingress),
+		Labels:               NewLabels(kb.Name, &deploymentType, ingress),
 		PodTemplateSpec:      kibanaPodSpec,
 		RevisionHistoryLimit: kb.Spec.RevisionHistoryLimit,
 		Strategy:             appsv1.DeploymentStrategy{Type: strategyType},
 	}, nil
 }
 
-func (d *driver) buildVolumes(kb *kbv1.Kibana) ([]commonvolume.VolumeLike, error) {
-	volumes := []commonvolume.VolumeLike{DataVolume, ConfigSharedVolume, ConfigVolume(*kb)}
+func (d *driver) buildVolumes(kb *kbv1.Kibana, deploymentType DeploymentType) ([]commonvolume.VolumeLike, error) {
+	volumes := []commonvolume.VolumeLike{DataVolume, ConfigSharedVolume, ConfigVolume(*kb, deploymentType)}
 
 	esAssocConf, err := kb.EsAssociation().AssociationConf()
 	if err != nil {
@@ -349,7 +389,7 @@ func NewService(kb kbv1.Kibana) *corev1.Service {
 	svc.ObjectMeta.Namespace = kb.Namespace
 	svc.ObjectMeta.Name = kbv1.HTTPService(kb.Name)
 
-	labels := NewLabels(kb.Name, Main)
+	labels := NewLabels(kb.Name, nil, true)
 	ports := []corev1.ServicePort{
 		{
 			Name:     kb.Spec.HTTP.Protocol(),

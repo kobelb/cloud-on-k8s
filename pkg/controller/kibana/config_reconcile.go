@@ -49,17 +49,17 @@ var (
 )
 
 // ConfigVolume returns a SecretVolume to hold the Kibana config of the given Kibana resource.
-func ConfigVolume(kb kbv1.Kibana) volume.SecretVolume {
+func ConfigVolume(kb kbv1.Kibana, deploymentType DeploymentType) volume.SecretVolume {
 	return volume.NewSecretVolumeWithMountPath(
-		SecretName(kb),
+		SecretName(kb, deploymentType),
 		InternalConfigVolumeName,
 		InternalConfigVolumeMountPath,
 	)
 }
 
 // SecretName is the name of the secret that holds the Kibana config for the given Kibana resource.
-func SecretName(kb kbv1.Kibana) string {
-	return kb.Name + "-kb-config"
+func SecretName(kb kbv1.Kibana, deploymentType DeploymentType) string {
+	return kb.Name + "-" + deploymentType.String() + "-kb-config"
 }
 
 // ReconcileConfigSecret reconciles the expected Kibana config secret for the given Kibana resource.
@@ -68,6 +68,7 @@ func ReconcileConfigSecret(
 	ctx context.Context,
 	client k8s.Client,
 	kb kbv1.Kibana,
+	deploymentType DeploymentType,
 	kbSettings CanonicalConfig,
 ) error {
 	span, ctx := apm.StartSpan(ctx, "reconcile_config_secret", tracing.SpanTypeApp)
@@ -78,7 +79,7 @@ func ReconcileConfigSecret(
 		return err
 	}
 
-	telemetryYamlBytes, err := getTelemetryYamlBytes(client, kb)
+	telemetryYamlBytes, err := getTelemetryYamlBytes(client, kb, deploymentType)
 	if err != nil {
 		return err
 	}
@@ -94,10 +95,8 @@ func ReconcileConfigSecret(
 	expected := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: kb.Namespace,
-			Name:      SecretName(kb),
-			Labels: labels.AddCredentialsLabel(map[string]string{
-				KibanaNameLabelName: kb.Name,
-			}),
+			Name:      SecretName(kb, deploymentType),
+			Labels:    labels.AddCredentialsLabel(NewLabels(kb.Name, &deploymentType, false)),
 		},
 		Data: data,
 	}
@@ -108,9 +107,9 @@ func ReconcileConfigSecret(
 
 // getUsage returns usage map object and its YAML bytes from this Kibana configuration Secret or nil
 // if the Secret or usage key doesn't exist yet.
-func getTelemetryYamlBytes(client k8s.Client, kb kbv1.Kibana) ([]byte, error) {
+func getTelemetryYamlBytes(client k8s.Client, kb kbv1.Kibana, deploymentType DeploymentType) ([]byte, error) {
 	var secret corev1.Secret
-	if err := client.Get(context.Background(), types.NamespacedName{Namespace: kb.Namespace, Name: SecretName(kb)}, &secret); err != nil {
+	if err := client.Get(context.Background(), types.NamespacedName{Namespace: kb.Namespace, Name: SecretName(kb, deploymentType)}, &secret); err != nil {
 		if apierrors.IsNotFound(err) {
 			// this secret is just about to be created, we don't know usage yet
 			return nil, nil

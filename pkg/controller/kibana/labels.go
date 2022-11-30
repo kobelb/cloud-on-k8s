@@ -4,7 +4,9 @@
 
 package kibana
 
-import "github.com/elastic/cloud-on-k8s/v2/pkg/controller/common/labels"
+import (
+	"github.com/elastic/cloud-on-k8s/v2/pkg/controller/common/labels"
+)
 
 const (
 	// KibanaNameLabelName used to represent a Kibana in k8s resources
@@ -18,6 +20,8 @@ const (
 
 	KibanaDeploymentTypeLabelName = "kibana.k8s.elastic.co/deployment-type"
 
+	KibanaIngressLabelName = "kibana.k8s.elastic.co/ingress"
+
 	// Type represents the Kibana type
 	Type = "kibana"
 )
@@ -25,19 +29,36 @@ const (
 type DeploymentType int
 
 const (
-	Main DeploymentType = iota + 1
+	All DeploymentType = iota + 1
+	UI
 	BackgroundTasks
 )
 
 func (dt DeploymentType) String() string {
-	return [...]string{"main", "background-tasks"}[dt-1]
+	return [...]string{"all", "ui", "background-tasks"}[dt-1]
 }
 
 // NewLabels constructs a new set of labels for a Kibana pod
-func NewLabels(kibanaName string, deploymentType DeploymentType) map[string]string {
+func NewLabels(kibanaName string, deploymentType *DeploymentType, ingress bool) map[string]string {
+	labels := map[string]string{
+		KibanaNameLabelName:  kibanaName,
+		labels.TypeLabelName: Type,
+	}
+
+	if deploymentType != nil {
+		labels[KibanaDeploymentTypeLabelName] = deploymentType.String()
+	}
+
+	if ingress == true {
+		labels[KibanaIngressLabelName] = "true"
+	}
+
+	return labels
+}
+
+func DefaultLabels(kibanaName string) map[string]string {
 	return map[string]string{
-		KibanaNameLabelName:           kibanaName,
-		labels.TypeLabelName:          Type,
-		KibanaDeploymentTypeLabelName: deploymentType.String(),
+		KibanaNameLabelName:  kibanaName,
+		labels.TypeLabelName: Type,
 	}
 }

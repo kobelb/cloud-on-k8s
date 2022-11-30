@@ -43,7 +43,7 @@ func DeploymentStatus(ctx context.Context, current commonv1.DeploymentStatus, de
 	return status, nil
 }
 
-func DeploymentStatuses(ctx context.Context, current commonv1.DeploymentStatus, selector *metav1.LabelSelector, dep1 appsv1.Deployment, dep2 appsv1.Deployment, pods []corev1.Pod, versionLabel string) (commonv1.DeploymentStatus, error) {
+func DeploymentStatuses(ctx context.Context, current commonv1.DeploymentStatus, selector *metav1.LabelSelector, deps []appsv1.Deployment, pods []corev1.Pod, versionLabel string) (commonv1.DeploymentStatus, error) {
 	status := *current.DeepCopy()
 	if selector != nil {
 		labelsSelector, err := metav1.LabelSelectorAsSelector(selector)
@@ -52,20 +52,21 @@ func DeploymentStatuses(ctx context.Context, current commonv1.DeploymentStatus, 
 		}
 		status.Selector = labelsSelector.String()
 	}
-	status.Count = *dep1.Spec.Replicas + *dep2.Spec.Replicas
-	status.AvailableNodes = dep1.Status.AvailableReplicas + dep2.Status.AvailableReplicas
-	status.Version = LowestVersionFromPods(ctx, status.Version, pods, versionLabel)
 	status.Health = commonv1.RedHealth
-	for _, c := range dep1.Status.Conditions {
-		if c.Type == appsv1.DeploymentAvailable && c.Status == corev1.ConditionTrue {
-			status.Health = commonv1.GreenHealth
+	status.Count = 0
+	status.AvailableNodes = 0
+	for _, d := range deps {
+		status.Count += *d.Spec.Replicas
+		status.AvailableNodes += *&d.Status.AvailableReplicas
+
+		for _, c := range d.Status.Conditions {
+			if c.Type == appsv1.DeploymentAvailable && c.Status == corev1.ConditionTrue {
+				status.Health = commonv1.GreenHealth
+			}
 		}
 	}
-	for _, c := range dep2.Status.Conditions {
-		if c.Type == appsv1.DeploymentAvailable && c.Status == corev1.ConditionTrue {
-			status.Health = commonv1.GreenHealth
-		}
-	}
+	status.Version = LowestVersionFromPods(ctx, status.Version, pods, versionLabel)
+
 	return status, nil
 }
 

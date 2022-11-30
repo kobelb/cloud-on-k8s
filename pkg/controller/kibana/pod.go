@@ -72,8 +72,8 @@ func readinessProbe(useTLS bool) corev1.Probe {
 	}
 }
 
-func NewPodTemplateSpec(ctx context.Context, client k8sclient.Client, kb kbv1.Kibana, deploymentType DeploymentType, keystore *keystore.Resources, volumes []volume.VolumeLike) (corev1.PodTemplateSpec, error) {
-	labels := NewLabels(kb.Name, deploymentType)
+func NewPodTemplateSpec(ctx context.Context, client k8sclient.Client, kb kbv1.Kibana, deploymentType DeploymentType, ingress bool, keystore *keystore.Resources, volumes []volume.VolumeLike) (corev1.PodTemplateSpec, error) {
+	labels := NewLabels(kb.Name, &deploymentType, ingress)
 	labels[KibanaVersionLabelName] = kb.Spec.Version
 
 	ports := getDefaultContainerPorts(kb)

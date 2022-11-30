@@ -177,7 +177,7 @@ func (r *Reporter) reconcileKibanaSecret(ctx context.Context, kb kbv1.Kibana, te
 	log := ulog.FromContext(ctx)
 
 	var secret corev1.Secret
-	nsName := types.NamespacedName{Namespace: kb.Namespace, Name: kibana.SecretName(kb)}
+	nsName := types.NamespacedName{Namespace: kb.Namespace, Name: kibana.SecretName(kb, kibana.All)}
 	if err := r.client.Get(ctx, nsName, &secret); err != nil {
 		log.Error(err, "failed to get Kibana secret")
 		return
