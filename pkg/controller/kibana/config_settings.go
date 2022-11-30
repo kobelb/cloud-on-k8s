@@ -80,7 +80,7 @@ type CanonicalConfig struct {
 }
 
 // NewConfigSettings returns the Kibana configuration settings for the given Kibana resource.
-func NewConfigSettings(ctx context.Context, client k8s.Client, kb kbv1.Kibana, deploymentType DeploymentType, v version.Version, ipFamily corev1.IPFamily) (CanonicalConfig, error) {
+func NewConfigSettings(ctx context.Context, client k8s.Client, kb kbv1.Kibana, settingOverrides map[string]string, deploymentType DeploymentType, v version.Version, ipFamily corev1.IPFamily) (CanonicalConfig, error) {
 	span, _ := apm.StartSpan(ctx, "new_config_settings", tracing.SpanTypeApp)
 	defer span.End()
 
@@ -115,6 +115,7 @@ func NewConfigSettings(ctx context.Context, client k8s.Client, kb kbv1.Kibana, d
 	versionSpecificCfg := VersionDefaults(&kb, v)
 	entSearchCfg := settings.MustCanonicalConfig(enterpriseSearchSettings(kb))
 	monitoringCfg, err := settings.NewCanonicalConfigFrom(stackmon.MonitoringConfig(kb).Data)
+	settingOverridesCfg := settings.MustCanonicalConfig(settingOverrides)
 	if err != nil {
 		return CanonicalConfig{}, err
 	}
@@ -124,7 +125,9 @@ func NewConfigSettings(ctx context.Context, client k8s.Client, kb kbv1.Kibana, d
 		versionSpecificCfg,
 		kibanaTLSCfg,
 		entSearchCfg,
-		monitoringCfg)
+		monitoringCfg,
+		settingOverridesCfg,
+	)
 	if err != nil {
 		return CanonicalConfig{}, err
 	}

@@ -150,7 +150,7 @@ func (d *driver) Reconcile(
 	}
 
 	if kb.Spec.BackgroundTaskCount == 0 {
-		kbSettings, err := NewConfigSettings(ctx, d.client, *kb, All, d.version, d.ipFamily)
+		kbSettings, err := NewConfigSettings(ctx, d.client, *kb, nil, All, d.version, d.ipFamily)
 		if err != nil {
 			return results.WithError(err)
 		}
@@ -160,7 +160,10 @@ func (d *driver) Reconcile(
 			return results.WithError(err)
 		}
 	} else {
-		kbUISettings, err := NewConfigSettings(ctx, d.client, *kb, UI, d.version, d.ipFamily)
+		uiSettings := map[string]string{
+			"node.roles": "[\"ui\"]",
+		}
+		kbUISettings, err := NewConfigSettings(ctx, d.client, *kb, uiSettings, UI, d.version, d.ipFamily)
 		if err != nil {
 			return results.WithError(err)
 		}
@@ -170,7 +173,10 @@ func (d *driver) Reconcile(
 			return results.WithError(err)
 		}
 
-		kbBackgroundTaskSettings, err := NewConfigSettings(ctx, d.client, *kb, BackgroundTasks, d.version, d.ipFamily)
+		backgroundTaskSettings := map[string]string{
+			"node.roles": "[\"background_tasks\"]",
+		}
+		kbBackgroundTaskSettings, err := NewConfigSettings(ctx, d.client, *kb, backgroundTaskSettings, BackgroundTasks, d.version, d.ipFamily)
 		if err != nil {
 			return results.WithError(err)
 		}
@@ -203,7 +209,7 @@ func (d *driver) Reconcile(
 		}
 		reconciledDeployments = append(reconciledDeployments, reconciledDp)
 	} else {
-		uiDeploymentParams, err := d.deploymentParams(ctx, kb, UI, true, kb.Spec.BackgroundTaskCount)
+		uiDeploymentParams, err := d.deploymentParams(ctx, kb, UI, true, kb.Spec.Count)
 		if err != nil {
 			return results.WithError(err)
 		}
