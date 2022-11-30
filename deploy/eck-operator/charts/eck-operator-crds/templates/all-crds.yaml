@@ -7681,6 +7681,10 @@ spec:
           spec:
             description: KibanaSpec holds the specification of a Kibana instance.
             properties:
+              backgroundTaskCount:
+                description: Count of Kibana background-task only instances to deploy
+                format: int32
+                type: integer
               config:
                 description: 'Config holds the Kibana configuration. See: https://www.elastic.co/guide/en/kibana/current/settings.html'
                 type: object

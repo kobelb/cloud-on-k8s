@@ -73,6 +73,9 @@ type KibanaSpec struct {
 	// Count of Kibana instances to deploy.
 	Count int32 `json:"count,omitempty"`
 
+	// Count of Kibana background-task only instances to deploy
+	BackgroundTaskCount int32 `json:"backgroundTaskCount,omitempty"`
+
 	// ElasticsearchRef is a reference to an Elasticsearch cluster running in the same Kubernetes cluster.
 	ElasticsearchRef commonv1.ObjectSelector `json:"elasticsearchRef,omitempty"`
 
