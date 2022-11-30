@@ -126,7 +126,7 @@ func (d *driver) Reconcile(
 		Owner:                 kb,
 		TLSOptions:            kb.Spec.HTTP.TLS,
 		Namer:                 kbv1.KBNamer,
-		Labels:                NewLabels(kb.Name),
+		Labels:                NewLabels(kb.Name, Main),
 		Services:              []corev1.Service{*svc},
 		GlobalCA:              params.GlobalCA,
 		CACertRotation:        params.CACertRotation,
@@ -163,25 +163,39 @@ func (d *driver) Reconcile(
 		return results.WithError(err)
 	}
 
-	span, _ := apm.StartSpan(ctx, "reconcile_deployment", tracing.SpanTypeApp)
+	span, _ := apm.StartSpan(ctx, "reconcile_deployments", tracing.SpanTypeApp)
 	defer span.End()
 
-	deploymentParams, err := d.deploymentParams(ctx, kb)
+	mainDeploymentParams, err := d.deploymentParams(ctx, kb, Main, kb.Spec.Count)
 	if err != nil {
 		return results.WithError(err)
 	}
 
-	expectedDp := deployment.New(deploymentParams)
-	reconciledDp, err := deployment.Reconcile(ctx, d.client, expectedDp, kb)
+	mainExpectedDp := deployment.New(mainDeploymentParams)
+	mainReconciledDp, err := deployment.Reconcile(ctx, d.client, mainExpectedDp, kb)
 	if err != nil {
 		return results.WithError(err)
+	}
+
+	var backgroundReconciledDp appsv1.Deployment
+	if kb.Spec.BackgroundTaskCount > 0 {
+		backgroundDeploymentParams, err := d.deploymentParams(ctx, kb, BackgroundTasks, kb.Spec.BackgroundTaskCount)
+		if err != nil {
+			return results.WithError(err)
+		}
+
+		backgroundExpectedDp := deployment.New(backgroundDeploymentParams)
+		backgroundReconciledDp, err = deployment.Reconcile(ctx, d.client, backgroundExpectedDp, kb)
+		if err != nil {
+			return results.WithError(err)
+		}
 	}
 
 	existingPods, err := k8s.PodsMatchingLabels(d.K8sClient(), kb.Namespace, map[string]string{KibanaNameLabelName: kb.Name})
 	if err != nil {
 		return results.WithError(err)
 	}
-	deploymentStatus, err := common.DeploymentStatus(ctx, state.Kibana.Status.DeploymentStatus, reconciledDp, existingPods, KibanaVersionLabelName)
+	deploymentStatus, err := common.DeploymentStatuses(ctx, state.Kibana.Status.DeploymentStatus, mainExpectedDp.Spec.Selector, mainReconciledDp, backgroundReconciledDp, existingPods, KibanaVersionLabelName)
 	if err != nil {
 		return results.WithError(err)
 	}
@@ -213,7 +227,7 @@ func (d *driver) getStrategyType(kb *kbv1.Kibana) (appsv1.DeploymentStrategyType
 	return appsv1.RollingUpdateDeploymentStrategyType, nil
 }
 
-func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana) (deployment.Params, error) {
+func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana, deploymentType DeploymentType, replicas int32) (deployment.Params, error) {
 	initContainersParameters, err := newInitContainersParameters(kb)
 	if err != nil {
 		return deployment.Params{}, err
@@ -224,7 +238,7 @@ func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana) (deploym
 		d,
 		kb,
 		kbv1.KBNamer,
-		NewLabels(kb.Name),
+		NewLabels(kb.Name, deploymentType),
 		initContainersParameters,
 	)
 	if err != nil {
@@ -235,7 +249,7 @@ func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana) (deploym
 	if err != nil {
 		return deployment.Params{}, err
 	}
-	kibanaPodSpec, err := NewPodTemplateSpec(ctx, d.client, *kb, keystoreResources, volumes)
+	kibanaPodSpec, err := NewPodTemplateSpec(ctx, d.client, *kb, deploymentType, keystoreResources, volumes)
 	if err != nil {
 		return deployment.Params{}, err
 	}
@@ -287,11 +301,11 @@ func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana) (deploym
 	}
 
 	return deployment.Params{
-		Name:                 kbv1.KBNamer.Suffix(kb.Name),
+		Name:                 kbv1.KBNamer.Suffix(kb.Name + deploymentType.String()),
 		Namespace:            kb.Namespace,
-		Replicas:             kb.Spec.Count,
-		Selector:             NewLabels(kb.Name),
-		Labels:               NewLabels(kb.Name),
+		Replicas:             replicas,
+		Selector:             NewLabels(kb.Name, deploymentType),
+		Labels:               NewLabels(kb.Name, deploymentType),
 		PodTemplateSpec:      kibanaPodSpec,
 		RevisionHistoryLimit: kb.Spec.RevisionHistoryLimit,
 		Strategy:             appsv1.DeploymentStrategy{Type: strategyType},
@@ -335,7 +349,7 @@ func NewService(kb kbv1.Kibana) *corev1.Service {
 	svc.ObjectMeta.Namespace = kb.Namespace
 	svc.ObjectMeta.Name = kbv1.HTTPService(kb.Name)
 
-	labels := NewLabels(kb.Name)
+	labels := NewLabels(kb.Name, Main)
 	ports := []corev1.ServicePort{
 		{
 			Name:     kb.Spec.HTTP.Protocol(),

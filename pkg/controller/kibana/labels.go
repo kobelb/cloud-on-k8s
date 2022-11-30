@@ -16,14 +16,28 @@ const (
 	// KibanaVersionLabelName used to propagate Kibana version from the spec to the pods
 	KibanaVersionLabelName = "kibana.k8s.elastic.co/version"
 
+	KibanaDeploymentTypeLabelName = "kibana.k8s.elastic.co/deployment-type"
+
 	// Type represents the Kibana type
 	Type = "kibana"
 )
 
+type DeploymentType int
+
+const (
+	Main DeploymentType = iota + 1
+	BackgroundTasks
+)
+
+func (dt DeploymentType) String() string {
+	return [...]string{"main", "background-tasks"}[dt-1]
+}
+
 // NewLabels constructs a new set of labels for a Kibana pod
-func NewLabels(kibanaName string) map[string]string {
+func NewLabels(kibanaName string, deploymentType DeploymentType) map[string]string {
 	return map[string]string{
-		KibanaNameLabelName:  kibanaName,
-		labels.TypeLabelName: Type,
+		KibanaNameLabelName:           kibanaName,
+		labels.TypeLabelName:          Type,
+		KibanaDeploymentTypeLabelName: deploymentType.String(),
 	}
 }
