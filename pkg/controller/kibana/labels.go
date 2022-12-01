@@ -38,6 +38,10 @@ func (dt DeploymentType) String() string {
 	return [...]string{"all", "ui", "background-tasks"}[dt-1]
 }
 
+func (dt DeploymentType) NodeRolesConfig() string {
+	return [...]string{"", "ui", "background_tasks"}[dt-1]
+}
+
 // NewLabels constructs a new set of labels for a Kibana pod
 func NewLabels(kibanaName string, deploymentType *DeploymentType, ingress bool) map[string]string {
 	labels := map[string]string{

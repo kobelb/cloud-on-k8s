@@ -6,6 +6,7 @@ package kibana
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -86,6 +87,10 @@ func NewPodTemplateSpec(ctx context.Context, client k8sclient.Client, kb kbv1.Ki
 		WithReadinessProbe(readinessProbe(kb.Spec.HTTP.TLS.Enabled())).
 		WithPorts(ports).
 		WithInitContainers(initConfigContainer(kb))
+
+	if deploymentType != All {
+		builder = builder.WithEnv(corev1.EnvVar{Name: "NODE_ROLES", Value: fmt.Sprintf("[\"%s\"]", deploymentType.NodeRolesConfig())})
+	}
 
 	for _, volume := range volumes {
 		builder.WithVolumes(volume.Volume()).WithVolumeMounts(volume.VolumeMount())

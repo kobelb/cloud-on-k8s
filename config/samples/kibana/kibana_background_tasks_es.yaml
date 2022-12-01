@@ -12,6 +12,10 @@ spec:
       # This setting could have performance implications for production clusters.
       # See: https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-virtual-memory.html
       node.store.allow_mmap: false
+  monitoring:
+    metrics:
+      elasticsearchRefs:
+        - name: "elasticsearch-sample"
 ---
 apiVersion: kibana.k8s.elastic.co/v1
 kind: Kibana
@@ -40,3 +44,7 @@ spec:
           limits:
             memory: 1Gi
             cpu: 1
+  monitoring:
+    metrics:
+      elasticsearchRefs:
+        - name: "elasticsearch-sample"

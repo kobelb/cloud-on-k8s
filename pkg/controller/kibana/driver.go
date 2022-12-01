@@ -149,42 +149,14 @@ func (d *driver) Reconcile(
 		return results // will eventually retry
 	}
 
-	if kb.Spec.BackgroundTaskCount == 0 {
-		kbSettings, err := NewConfigSettings(ctx, d.client, *kb, nil, All, d.version, d.ipFamily)
-		if err != nil {
-			return results.WithError(err)
-		}
+	kbSettings, err := NewConfigSettings(ctx, d.client, *kb, d.version, d.ipFamily)
+	if err != nil {
+		return results.WithError(err)
+	}
 
-		err = ReconcileConfigSecret(ctx, d.client, *kb, All, kbSettings)
-		if err != nil {
-			return results.WithError(err)
-		}
-	} else {
-		uiSettings := map[string]string{
-			"node.roles": "[\"ui\"]",
-		}
-		kbUISettings, err := NewConfigSettings(ctx, d.client, *kb, uiSettings, UI, d.version, d.ipFamily)
-		if err != nil {
-			return results.WithError(err)
-		}
-
-		err = ReconcileConfigSecret(ctx, d.client, *kb, UI, kbUISettings)
-		if err != nil {
-			return results.WithError(err)
-		}
-
-		backgroundTaskSettings := map[string]string{
-			"node.roles": "[\"background_tasks\"]",
-		}
-		kbBackgroundTaskSettings, err := NewConfigSettings(ctx, d.client, *kb, backgroundTaskSettings, BackgroundTasks, d.version, d.ipFamily)
-		if err != nil {
-			return results.WithError(err)
-		}
-
-		err = ReconcileConfigSecret(ctx, d.client, *kb, BackgroundTasks, kbBackgroundTaskSettings)
-		if err != nil {
-			return results.WithError(err)
-		}
+	err = ReconcileConfigSecret(ctx, d.client, *kb, kbSettings)
+	if err != nil {
+		return results.WithError(err)
 	}
 
 	err = stackmon.ReconcileConfigSecrets(ctx, d.client, *kb)
@@ -291,7 +263,7 @@ func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana, deployme
 		return deployment.Params{}, err
 	}
 
-	volumes, err := d.buildVolumes(kb, deploymentType)
+	volumes, err := d.buildVolumes(kb)
 	if err != nil {
 		return deployment.Params{}, err
 	}
@@ -330,7 +302,7 @@ func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana, deployme
 
 	// get config secret to add its content to the config checksum
 	configSecret := corev1.Secret{}
-	err = d.client.Get(ctx, types.NamespacedName{Name: SecretName(*kb, deploymentType), Namespace: kb.Namespace}, &configSecret)
+	err = d.client.Get(ctx, types.NamespacedName{Name: SecretName(*kb), Namespace: kb.Namespace}, &configSecret)
 	if err != nil {
 		return deployment.Params{}, err
 	}
@@ -358,8 +330,8 @@ func (d *driver) deploymentParams(ctx context.Context, kb *kbv1.Kibana, deployme
 	}, nil
 }
 
-func (d *driver) buildVolumes(kb *kbv1.Kibana, deploymentType DeploymentType) ([]commonvolume.VolumeLike, error) {
-	volumes := []commonvolume.VolumeLike{DataVolume, ConfigSharedVolume, ConfigVolume(*kb, deploymentType)}
+func (d *driver) buildVolumes(kb *kbv1.Kibana) ([]commonvolume.VolumeLike, error) {
+	volumes := []commonvolume.VolumeLike{DataVolume, ConfigSharedVolume, ConfigVolume(*kb)}
 
 	esAssocConf, err := kb.EsAssociation().AssociationConf()
 	if err != nil {

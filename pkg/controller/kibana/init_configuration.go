@@ -50,7 +50,7 @@ func initConfigContainer(kb kbv1.Kibana) corev1.Container {
 		Command: []string{"/usr/bin/env", "bash", "-c", InitConfigScript},
 		VolumeMounts: []corev1.VolumeMount{
 			ConfigSharedVolume.InitContainerVolumeMount(),
-			ConfigVolume(kb, All).VolumeMount(),
+			ConfigVolume(kb).VolumeMount(),
 		},
 		Resources: corev1.ResourceRequirements{
 			Requests: map[corev1.ResourceName]resource.Quantity{

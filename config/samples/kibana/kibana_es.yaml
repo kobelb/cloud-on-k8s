@@ -6,9 +6,19 @@ metadata:
 spec:
   version: 8.5.0
   nodeSets:
-  - name: default
+  - name: master
     count: 1
     config:
+      # most Elasticsearch configuration parameters are possible to set, e.g: node.attr.attr_name: attr_value
+      node.roles: ["master"]
+      # This setting could have performance implications for production clusters.
+      # See: https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-virtual-memory.html
+      node.store.allow_mmap: false
+  - name: data
+    count: 1
+    config:
+      # most Elasticsearch configuration parameters are possible to set, e.g: node.attr.attr_name: attr_value
+      node.roles: ["data", "ingest", "ml"]
       # This setting could have performance implications for production clusters.
       # See: https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-virtual-memory.html
       node.store.allow_mmap: false

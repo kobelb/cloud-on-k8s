@@ -80,11 +80,11 @@ type CanonicalConfig struct {
 }
 
 // NewConfigSettings returns the Kibana configuration settings for the given Kibana resource.
-func NewConfigSettings(ctx context.Context, client k8s.Client, kb kbv1.Kibana, settingOverrides map[string]string, deploymentType DeploymentType, v version.Version, ipFamily corev1.IPFamily) (CanonicalConfig, error) {
+func NewConfigSettings(ctx context.Context, client k8s.Client, kb kbv1.Kibana, v version.Version, ipFamily corev1.IPFamily) (CanonicalConfig, error) {
 	span, _ := apm.StartSpan(ctx, "new_config_settings", tracing.SpanTypeApp)
 	defer span.End()
 
-	reusableSettings, err := getOrCreateReusableSettings(ctx, client, kb, deploymentType)
+	reusableSettings, err := getOrCreateReusableSettings(ctx, client, kb)
 	if err != nil {
 		return CanonicalConfig{}, err
 	}
@@ -115,7 +115,6 @@ func NewConfigSettings(ctx context.Context, client k8s.Client, kb kbv1.Kibana, s
 	versionSpecificCfg := VersionDefaults(&kb, v)
 	entSearchCfg := settings.MustCanonicalConfig(enterpriseSearchSettings(kb))
 	monitoringCfg, err := settings.NewCanonicalConfigFrom(stackmon.MonitoringConfig(kb).Data)
-	settingOverridesCfg := settings.MustCanonicalConfig(settingOverrides)
 	if err != nil {
 		return CanonicalConfig{}, err
 	}
@@ -126,7 +125,6 @@ func NewConfigSettings(ctx context.Context, client k8s.Client, kb kbv1.Kibana, s
 		kibanaTLSCfg,
 		entSearchCfg,
 		monitoringCfg,
-		settingOverridesCfg,
 	)
 	if err != nil {
 		return CanonicalConfig{}, err
@@ -199,10 +197,10 @@ type reusableSettings struct {
 }
 
 // getExistingConfig retrieves the canonical config for a given Kibana, if one exists
-func getExistingConfig(ctx context.Context, client k8s.Client, kb kbv1.Kibana, deploymentType DeploymentType) (*settings.CanonicalConfig, error) {
+func getExistingConfig(ctx context.Context, client k8s.Client, kb kbv1.Kibana) (*settings.CanonicalConfig, error) {
 	log := ulog.FromContext(ctx)
 	var secret corev1.Secret
-	err := client.Get(context.Background(), types.NamespacedName{Name: SecretName(kb, deploymentType), Namespace: kb.Namespace}, &secret)
+	err := client.Get(context.Background(), types.NamespacedName{Name: SecretName(kb), Namespace: kb.Namespace}, &secret)
 	if err != nil && apierrors.IsNotFound(err) {
 		log.V(1).Info("Kibana config secret does not exist", "namespace", kb.Namespace, "kibana_name", kb.Name)
 		return nil, nil
@@ -226,8 +224,8 @@ func getExistingConfig(ctx context.Context, client k8s.Client, kb kbv1.Kibana, d
 
 // getOrCreateReusableSettings filters an existing config for only items we want to preserve between spec changes
 // because they cannot be generated deterministically, e.g. encryption keys
-func getOrCreateReusableSettings(ctx context.Context, c k8s.Client, kb kbv1.Kibana, deploymentType DeploymentType) (*settings.CanonicalConfig, error) {
-	cfg, err := getExistingConfig(ctx, c, kb, deploymentType)
+func getOrCreateReusableSettings(ctx context.Context, c k8s.Client, kb kbv1.Kibana) (*settings.CanonicalConfig, error) {
+	cfg, err := getExistingConfig(ctx, c, kb)
 	if err != nil {
 		return nil, err
 	}
